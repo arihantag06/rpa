@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  # Selenium Chrome with built-in VNC support
+  chrome:
+    image: selenium/standalone-chrome:latest
+    container_name: automation-chrome
+    ports:
+      - "4444:4444"    # Selenium WebDriver
+      - "7900:7900"    # noVNC web interface (live browser view)
+      - "5900:5900"    # VNC direct access
+    shm_size: 2gb
+    environment:
+      - SE_VNC_NO_PASSWORD=1            # No password needed
+      - SE_SCREEN_WIDTH=1280            # Screen resolution (better fit for iframe)
+      - SE_SCREEN_HEIGHT=720
+      - SE_NODE_MAX_SESSIONS=5          # Max concurrent sessions
+      - SE_NODE_SESSION_TIMEOUT=300     # Session timeout (5 min)
+    restart: unless-stopped
+
