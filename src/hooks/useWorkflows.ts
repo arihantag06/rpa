@@ -1,28 +1,52 @@
 import { useState, useEffect } from 'react';
 import { type Workflow } from '../types/workflow';
+import { workflowTemplates } from '../utils/templates';
 
 const STORAGE_KEY = 'automation-workflows';
+const TEMPLATES_LOADED_KEY = 'automation-templates-loaded';
 
 export function useWorkflows() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [currentWorkflow, setCurrentWorkflow] = useState<Workflow | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Load workflows from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
+    const templatesLoaded = localStorage.getItem(TEMPLATES_LOADED_KEY);
+    
     if (saved) {
       try {
-        setWorkflows(JSON.parse(saved));
+        const loadedWorkflows = JSON.parse(saved);
+        
+        // If templates haven't been loaded yet, add them to the beginning of the list
+        if (!templatesLoaded) {
+          const updatedWorkflows = [...workflowTemplates, ...loadedWorkflows];
+          setWorkflows(updatedWorkflows);
+          localStorage.setItem(TEMPLATES_LOADED_KEY, 'true');
+        } else {
+          setWorkflows(loadedWorkflows);
+        }
       } catch (error) {
         console.error('Failed to load workflows:', error);
+        setWorkflows([...workflowTemplates]);
+        localStorage.setItem(TEMPLATES_LOADED_KEY, 'true');
       }
+    } else {
+      // No saved workflows, just load templates
+      setWorkflows([...workflowTemplates]);
+      localStorage.setItem(TEMPLATES_LOADED_KEY, 'true');
     }
+    
+    setIsInitialized(true);
   }, []);
 
-  // Save workflows to localStorage whenever workflows change
+  // Save workflows to localStorage whenever workflows change (but not on initial load)
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(workflows));
-  }, [workflows]);
+    if (isInitialized) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(workflows));
+    }
+  }, [workflows, isInitialized]);
 
   const createWorkflow = (name: string, description?: string): Workflow => {
     const newWorkflow: Workflow = {

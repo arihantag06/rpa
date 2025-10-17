@@ -28,6 +28,14 @@ export default function WorkflowManager({ onWorkflowSelect }: WorkflowManagerPro
     }
   };
 
+  const handleResetWorkflows = () => {
+    if (confirm('This will clear all workflows and reload templates. Are you sure?')) {
+      localStorage.removeItem('automation-workflows');
+      localStorage.removeItem('automation-templates-loaded');
+      window.location.reload();
+    }
+  };
+
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="flex items-center justify-between mb-6">
@@ -104,13 +112,21 @@ export default function WorkflowManager({ onWorkflowSelect }: WorkflowManagerPro
             <p className="text-gray-600 mb-4">
               Create your first workflow to start automating tasks
             </p>
-            <button
-              onClick={() => setShowCreateForm(true)}
-              className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors mx-auto"
-            >
-              <Plus size={16} />
-              <span>Create Your First Workflow</span>
-            </button>
+            <div className="flex flex-col items-center space-y-3">
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+              >
+                <Plus size={16} />
+                <span>Create Your First Workflow</span>
+              </button>
+              <button
+                onClick={handleResetWorkflows}
+                className="text-sm text-gray-500 hover:text-gray-700 underline"
+              >
+                Reset & Load Templates
+              </button>
+            </div>
           </div>
         ) : (
           workflows.map((workflow) => (

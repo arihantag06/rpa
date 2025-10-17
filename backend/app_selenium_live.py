@@ -26,17 +26,52 @@ browser_state = {
 }
 
 def get_driver():
-    """Get or create Selenium WebDriver"""
+    """Get or create Selenium WebDriver with retry logic"""
     global driver
-    if driver is None:
-        options = webdriver.ChromeOptions()
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        driver = webdriver.Remote(
-            command_executor=SELENIUM_URL,
-            options=options
-        )
-        print("✓ Browser session created")
+    
+    # Check if existing driver is still alive
+    if driver is not None:
+        try:
+            driver.current_url  # Test if driver is still responsive
+            print("✓ Reusing existing browser session")
+            return driver
+        except Exception as e:
+            print(f"⚠ Existing driver is dead: {e}")
+            driver = None
+    
+    # Create new driver with retry logic
+    max_retries = 3
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            print(f"🔄 Connecting to Selenium (attempt {attempt + 1}/{max_retries})...")
+            options = webdriver.ChromeOptions()
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--disable-gpu')
+            options.set_capability('timeouts', {
+                'implicit': 30000,
+                'pageLoad': 60000,
+                'script': 30000
+            })
+            
+            driver = webdriver.Remote(
+                command_executor=SELENIUM_URL,
+                options=options
+            )
+            print("✅ Browser session created successfully")
+            return driver
+            
+        except Exception as e:
+            print(f"❌ Connection attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                print(f"⏳ Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print("❌ All connection attempts failed")
+                raise Exception(f"Failed to connect to Selenium after {max_retries} attempts: {e}")
+    
     return driver
 
 @app.route('/api/execute-step', methods=['POST'])
@@ -139,11 +174,33 @@ def browser_control():
 @app.route('/api/health', methods=['GET'])
 def health_check():
     global driver
+    
+    # Test Selenium connection
+    selenium_connected = False
+    try:
+        import requests
+        response = requests.get(f"{SELENIUM_URL}/status", timeout=3)
+        if response.status_code == 200:
+            selenium_connected = True
+    except:
+        selenium_connected = False
+    
+    # Test if driver is alive
+    driver_alive = False
+    if driver is not None:
+        try:
+            driver.current_url
+            driver_alive = True
+        except:
+            driver_alive = False
+    
     return jsonify({
-        'status': 'healthy',
+        'status': 'healthy' if selenium_connected else 'degraded',
         'selenium_url': SELENIUM_URL,
         'vnc_url': VNC_URL,
+        'selenium_connected': selenium_connected,
         'browser_active': driver is not None,
+        'driver_alive': driver_alive,
         'timestamp': datetime.now().isoformat()
     })
 
@@ -179,7 +236,7 @@ def get_browser_state():
 
 def execute_step_with_selenium(step):
     """Execute a single step using Selenium"""
-    global browser_state
+    global browser_state, driver
     
     try:
         step_type = step.get('type')
@@ -193,9 +250,11 @@ def execute_step_with_selenium(step):
             if not url.startswith('http'):
                 url = 'https://' + url
             
+            print(f"🌐 Navigating to: {url}")
             browser.get(url)
             browser_state['url'] = url
             browser_state['title'] = browser.title
+            print(f"✅ Navigation successful: {browser.title}")
             
             return {
                 'success': True,
@@ -205,11 +264,13 @@ def execute_step_with_selenium(step):
         
         elif step_type == 'click':
             xpath = config.get('xpath', '')
+            print(f"🖱️  Attempting to click: {xpath}")
             element = WebDriverWait(browser, 10).until(
                 EC.element_to_be_clickable((By.XPATH, xpath))
             )
             element.click()
             time.sleep(0.5)  # Brief wait for page update
+            print(f"✅ Click successful")
             
             return {'success': True, 'message': f'Clicked element: {xpath}'}
         
@@ -217,33 +278,49 @@ def execute_step_with_selenium(step):
             xpath = config.get('xpath', '')
             text = config.get('text', '')
             
+            print(f"⌨️  Typing into: {xpath}")
             element = WebDriverWait(browser, 10).until(
                 EC.presence_of_element_located((By.XPATH, xpath))
             )
             element.clear()
             element.send_keys(text)
             time.sleep(0.5)
+            print(f"✅ Type successful")
             
             return {'success': True, 'message': f'Typed text into: {xpath}'}
         
         elif step_type == 'wait':
-            duration = config.get('duration', 1)
+            duration = config.get('duration', 1000) / 1000  # Convert ms to seconds
+            print(f"⏳ Waiting for {duration} seconds...")
             time.sleep(duration)
+            print(f"✅ Wait complete")
             return {'success': True, 'message': f'Waited for {duration} seconds'}
         
         elif step_type == 'screenshot':
+            print(f"📸 Taking screenshot...")
             screenshot = browser.get_screenshot_as_base64()
+            print(f"✅ Screenshot captured")
             return {
                 'success': True,
                 'screenshot': f'data:image/png;base64,{screenshot}'
             }
         
         else:
-            return {'success': False, 'error': f'Unknown step type: {step_type}'}
+            error_msg = f'Unknown step type: {step_type}'
+            print(f"❌ {error_msg}")
+            return {'success': False, 'error': error_msg}
             
     except Exception as e:
+        error_msg = str(e)
+        print(f"❌ Step execution failed: {error_msg}")
         browser_state['is_running'] = False
-        return {'success': False, 'error': str(e)}
+        
+        # Check if it's a critical driver error (connection lost)
+        if 'invalid session id' in error_msg.lower() or 'Session timed out' in error_msg:
+            print("⚠️  Driver session lost, will reconnect on next step")
+            driver = None
+        
+        return {'success': False, 'error': error_msg}
 
 def execute_browser_command(command, data):
     """Execute browser commands"""
@@ -251,17 +328,26 @@ def execute_browser_command(command, data):
     
     try:
         if command == 'reset':
+            print("🔄 Resetting browser...")
             if driver:
-                driver.quit()
-                driver = None
+                try:
+                    driver.quit()
+                    print("✅ Browser session closed")
+                except Exception as e:
+                    print(f"⚠️  Error closing driver: {e}")
+                finally:
+                    driver = None
+            
             browser_state = {
                 'url': '',
                 'title': '',
                 'is_running': False
             }
-            return {'success': True, 'message': 'Browser reset'}
+            print("✅ Browser state reset")
+            return {'success': True, 'message': 'Browser reset successfully'}
         
         elif command == 'stop':
+            print("⏹️  Stopping browser execution...")
             browser_state['is_running'] = False
             return {'success': True, 'message': 'Browser stopped'}
         
@@ -269,6 +355,7 @@ def execute_browser_command(command, data):
             return {'success': False, 'error': f'Unknown command: {command}'}
             
     except Exception as e:
+        print(f"❌ Browser command failed: {e}")
         return {'success': False, 'error': str(e)}
 
 if __name__ == '__main__':
