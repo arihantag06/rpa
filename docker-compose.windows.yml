@@ -4,6 +4,7 @@ services:
   # Selenium Chrome with built-in VNC support
   chrome:
     image: selenium/standalone-chrome:latest
+    platform: linux/amd64
     container_name: automation-chrome
     ports:
       - "4444:4444"    # Selenium WebDriver
