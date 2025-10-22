@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { type Workflow } from '../types/workflow';
+import { type Workflow, type WorkflowStep } from '../types/workflow';
 import { workflowTemplates } from '../utils/templates';
 
 const STORAGE_KEY = 'automation-workflows';
@@ -14,15 +14,27 @@ export function useWorkflows() {
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     const templatesLoaded = localStorage.getItem(TEMPLATES_LOADED_KEY);
-    
+
     if (saved) {
       try {
-        const loadedWorkflows = JSON.parse(saved);
-        
-        // If templates haven't been loaded yet, add them to the beginning of the list
-        if (!templatesLoaded) {
-          const updatedWorkflows = [...workflowTemplates, ...loadedWorkflows];
+        const loadedWorkflows: Workflow[] = JSON.parse(saved) || [];
+
+        // Always check for any templates that are missing from the saved workflows
+        // and merge them in so newly added templates become visible.
+        const missingTemplates = workflowTemplates.filter(
+          (tpl) => !loadedWorkflows.some((w) => w.id === tpl.id)
+        );
+
+        if (missingTemplates.length > 0) {
+          const updatedWorkflows = [...missingTemplates, ...loadedWorkflows];
           setWorkflows(updatedWorkflows);
+          // persist merged result so we don't repeatedly prepend the same templates
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedWorkflows));
+          localStorage.setItem(TEMPLATES_LOADED_KEY, 'true');
+        } else if (!templatesLoaded) {
+          // If templates haven't been marked as loaded yet, ensure we set the flag
+          // but don't duplicate templates that are already present.
+          setWorkflows(loadedWorkflows);
           localStorage.setItem(TEMPLATES_LOADED_KEY, 'true');
         } else {
           setWorkflows(loadedWorkflows);
@@ -37,7 +49,7 @@ export function useWorkflows() {
       setWorkflows([...workflowTemplates]);
       localStorage.setItem(TEMPLATES_LOADED_KEY, 'true');
     }
-    
+
     setIsInitialized(true);
   }, []);
 
@@ -57,19 +69,19 @@ export function useWorkflows() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    
+
     setWorkflows(prev => [...prev, newWorkflow]);
     setCurrentWorkflow(newWorkflow);
     return newWorkflow;
   };
 
   const updateWorkflow = (id: string, updates: Partial<Workflow>) => {
-    setWorkflows(prev => prev.map(workflow => 
-      workflow.id === id 
+    setWorkflows(prev => prev.map(workflow =>
+      workflow.id === id
         ? { ...workflow, ...updates, updatedAt: new Date().toISOString() }
         : workflow
     ));
-    
+
     if (currentWorkflow?.id === id) {
       setCurrentWorkflow(prev => prev ? { ...prev, ...updates, updatedAt: new Date().toISOString() } : null);
     }

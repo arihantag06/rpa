@@ -290,10 +290,14 @@ def execute_step_with_selenium(step):
             return {'success': True, 'message': f'Typed text into: {xpath}'}
         
         elif step_type == 'wait':
-            duration = config.get('duration', 1000) / 1000  # Convert ms to seconds
+            raw_duration = config.get('duration', 1000)
+            try:
+                duration = float(raw_duration)
+            except Exception:
+                duration = 1  # default fallback
             print(f"⏳ Waiting for {duration} seconds...")
             time.sleep(duration)
-            print(f"✅ Wait complete")
+            print("✅ Wait complete")
             return {'success': True, 'message': f'Waited for {duration} seconds'}
         
         elif step_type == 'screenshot':
